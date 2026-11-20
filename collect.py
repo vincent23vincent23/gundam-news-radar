@@ -55,9 +55,16 @@ EXCLUDE = ["在庫あり", "グミ", "ガンダムデカール", "アッセン�
 # 🚨 重大情報規則：標題「含 any 其中一個」且「不含 none 任何一個」→ 立刻推播
 #    推太多就在 none 加字；漏掉就在 any 加字
 URGENT_RULES = [
-    {"label": "大型新品",
-     "any": [r"(?<![A-Za-z])(MG|MGEX|PG|RG|PG UNLEASHED|METAL BUILD)(?![A-Za-z])"],
-     "none": ["再販", "在庫", "デカール", "入荷", "予約受付中", "受注開始", "紹介", "COLLECTION", "レビュー", "[閒聊]", "[開箱]"]},
+    {"label": "新套件",
+     # 「商品系列」和「新品字眼」兩組都要命中
+     "all": [r"(?<![A-Za-z])(HG|HGUC|HGCE|HGAW|RG|MG|MGEX|MGSD|PG|EG|SD|RE/100|FM)(?![A-Za-z])|ROBOT魂|METAL BUILD|METAL ROBOT魂|超合金|GUNDAM ASSEMBLE|オプションパーツセット|ガンプラ",
+             r"新商品|新作|発売決定|商品化|受注開始|予約開始|予約受付開始|初公開|発表|発売予定|登場"],
+     "none": ["再販", "在庫", "デカール", "入荷", "販売中", "抽選", "2次", "二次", "２次", "3次", "３次", "紹介", "COLLECTION",
+              "レビュー", "組み立て", "素組", "ソフビ", "魂ストア", "[閒聊]", "[開箱]", "[心得]",
+              # 通路上架通知（同一商品官方消息已經推過）
+              "あみあみ", "楽天", "Amazon", "一般販売で", "リンク集",
+              # 非鋼彈 IP
+              "マクロス", "バルキリー", "VF-1", "グルンガスト", "スーパーロボット", "ボトムズ", "エルガイム"]},
     {"label": "動畫／影像",
      "any": ["新作アニメ", "制作決定", "劇場版", "ティザー", "特報", "PV公開", "新プロジェクト", "新作發表"],
      "none": [],
@@ -66,7 +73,7 @@ URGENT_RULES = [
      "any": ["価格改定", "値上げ", "漲價"],
      "none": ["参照", "まとめ"]},
 ]
-MAX_PUSH_PER_RUN = 5   # 一次最多推幾則（避免第一次執行洗版）
+MAX_PUSH_PER_RUN = 10  # 一次最多推幾則（避免第一次執行洗版）
 
 LOOKBACK_DAYS = 2      # 只收最近幾天的文章（避免第一次執行塞爆）
 SUMMARY_CHARS = 160    # 摘要最多幾個字（字越少，AI 越省額度）
@@ -153,9 +160,27 @@ def urgent_label(title, summary):
             continue
         if rule.get("need_gundam") and not is_gundam(f"{title} {summary}"):
             continue
-        if any(re.search(p, title) for p in rule["any"]):
+        if "all" in rule and all(re.search(p, title) for p in rule["all"]):
+            return rule["label"]
+        if any(re.search(p, title) for p in rule.get("any", [])):
             return rule["label"]
     return None
+
+
+PUSHED_FILE = BASE / "data" / "pushed.json"
+
+
+def product_key(title):
+    """從標題抓出商品名，當作「推過了沒」的判斷依據。"""
+    t = re.sub(r"^【[^】]*】", "", title)
+    m = re.search(r"「([^」]+)」", t)
+    t = m.group(1) if m else re.split(r"[、，,！!]", t)[0]
+    t = re.sub(r"[\s　]|\(仮称?\)|（仮称?）|ver\.|[^\w/]", "", t, flags=re.I)
+    return t.lower()[:40]
+
+
+def already_pushed(key, pushed):
+    return any(key and (key in k or k in key) for k in pushed)
 
 
 def webhook_url():
@@ -221,7 +246,17 @@ def main():
         with raw.open("a") as f:
             f.write(header + f"\n## {now:%H:%M} 巡邏（新 {len(new_lines)} 則）\n" + "\n".join(new_lines) + "\n")
 
-    # 重大情報推播
+    # 重大情報推播（同一商品 60 天內只推一次）
+    history = json.loads(PUSHED_FILE.read_text()) if PUSHED_FILE.exists() else {}
+    history = {k: v for k, v in history.items() if v >= f"{now - timedelta(days=60):%Y-%m-%d}"}
+    fresh = []
+    for u in urgent:
+        key = product_key(u[2])
+        if already_pushed(key, history):
+            continue
+        history[key] = f"{now:%Y-%m-%d}"
+        fresh.append(u)
+    urgent = fresh
     pushed = 0
     for label, name, title, link in urgent[:MAX_PUSH_PER_RUN]:
         pushed += discord(f"🚨 **{label}**｜{name}\n{title}\n{link}")
@@ -229,6 +264,7 @@ def main():
         discord(f"……另外還有 {len(urgent) - MAX_PUSH_PER_RUN} 則重大情報，請看明天日報")
 
     SEEN_FILE.parent.mkdir(exist_ok=True)
+    PUSHED_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=0))
     SEEN_FILE.write_text(json.dumps(sorted(seen), ensure_ascii=False, indent=0))
 
     print(f"{now:%H:%M} 新 {len(new_lines)} 則，重大 {len(urgent)} 則（已推播 {pushed}）→ {raw.name}")
