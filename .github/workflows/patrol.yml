@@ -1,0 +1,35 @@
+# GitHub Actions：每 15 分鐘在雲端跑一次巡邏程序（你的 Mac 關機也會跑）
+name: 鋼彈情報巡邏
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # 每 15 分鐘（GitHub 尖峰時段可能延遲幾分鐘）
+  workflow_dispatch:          # 允許在網頁上按按鈕手動執行
+
+permissions:
+  contents: write             # 允許把新的 raw 檔和 seen.json 存回倉庫
+
+concurrency:
+  group: patrol
+  cancel-in-progress: false
+
+jobs:
+  patrol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 巡邏
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python collect.py
+      - name: 存回倉庫
+        run: |
+          git config user.name "patrol-bot"
+          git config user.email "patrol-bot@users.noreply.github.com"
+          git add raw data
+          git diff --cached --quiet || git commit -m "巡邏 $(TZ=Asia/Taipei date '+%m/%d %H:%M')"
+          git push

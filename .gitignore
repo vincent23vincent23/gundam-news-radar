@@ -1,0 +1,6 @@
+# 這些只留在你的 Mac，不上傳 GitHub
+discord_webhook.txt
+收件匣.txt
+日報/
+__pycache__/
+.DS_Store
