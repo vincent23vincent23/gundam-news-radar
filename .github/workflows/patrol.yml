@@ -1,9 +1,10 @@
 # GitHub Actions：每 15 分鐘在雲端跑一次巡邏程序（你的 Mac 關機也會跑）
+# 帳號被停用期間建立的排程不會生效，2026-11-26 重新提交以註冊排程
 name: 鋼彈情報巡邏
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # 每 15 分鐘（GitHub 尖峰時段可能延遲幾分鐘）
+    - cron: "7,22,37,52 * * * *"   # 每 15 分鐘（GitHub 尖峰時段可能延遲幾分鐘）
   workflow_dispatch:          # 允許在網頁上按按鈕手動執行
 
 permissions:
